@@ -1,0 +1,145 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum MessageType {
+  message
+  reaction
+}
+
+enum Presence {
+  unavailable
+  available
+  composing
+  recording
+  paused
+}
+
+enum GroupAdmin {
+  admin
+  superadmin
+}
+
+model Message {
+  id                  String        @id @unique
+  key                 Json?
+  timestamp           Int?
+  raw                 Json?         // WaMessage
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  group               Group?        @relation(fields: [groupId], references: [id])
+  groupId             String?
+  sender              User?         @relation("SentMessages", fields: [senderId], references: [id])
+  senderId            String?
+  type                MessageType?
+
+  @@index([timestamp])
+  @@index([groupId])
+  @@index([senderId])
+  @@index([type])
+}
+
+model Contact {
+  id                  String        @id @unique
+  lid                 String?
+  phoneNumber         String?
+  name                String?
+  notify              String?
+  imgUrl              String?
+  status              String?
+
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  user                User?         @relation(fields: [id], references: [id])
+}
+
+model User {
+  id                  String        @id @unique
+  name                String?
+  phoneNumber         String?
+  presence            Presence?     @default(unavailable) 
+  
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  ownedGroups         Group[]       @relation("GroupOwner")
+  groups              Participant[]
+  contact             Contact?
+  blocklist           Blocklist?
+  messages            Message[]     @relation("SentMessages")
+
+  metaData            Json?
+
+  @@index([presence])
+}
+
+model Group {
+  id                  String        @id @unique
+  subject             String?
+  subjectOwner        String?
+  subjectOwnerPn      String?
+  subjectTime         Int?
+  creation            Int?
+  desc                String?
+  descId              String?
+  descTime            Int?
+  descOwner           String?
+  descOwnerPn         String?
+  restrict            Boolean?
+  announce            Boolean?
+  isCommunity         Boolean?
+  isCommunityAnnounce Boolean?
+  communityId         String?
+  linkedParent        String?
+  size                Int?
+  ephemeralDuration   Int?
+  inviteCode          String?
+  joinApprovalMode    Boolean?
+  memberAddMode       Boolean?
+  author              String?
+  authorPn            String?
+
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  owner               User?         @relation("GroupOwner", fields: [ownerId], references: [id])
+  ownerId             String?
+  ownerPn             String?
+  owner_country_code  String?
+
+  participants        Participant[]
+  messages            Message[]
+
+  metaData            Json?
+}
+
+model Participant {
+  id                  String
+  jid                 String?
+  lid                 String?
+  groupId             String
+  admin               GroupAdmin?
+
+  user                User?         @relation(fields: [jid], references: [id])
+  group               Group         @relation(fields: [groupId], references: [id])
+
+  @@id([id, groupId])
+}
+
+model Blocklist {
+  id                  String        @id @unique
+  timestamp           Int?
+
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  user                User?         @relation(fields: [id], references: [id])
+}

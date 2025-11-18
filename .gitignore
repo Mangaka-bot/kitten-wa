@@ -1,0 +1,4 @@
+session/
+generated/prisma
+prisma/historySync.js
+node_modules
