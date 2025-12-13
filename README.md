@@ -19,5 +19,5 @@
 <div align="center">
 
 
-**Made with ❤️ for whatsapp community**
+**Made with ❤️ for Whatsapp community**
 </div>
