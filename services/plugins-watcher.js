@@ -1,6 +1,6 @@
 import { watch } from "fs";
 import { join, sep } from "path";
-import ora from "ora";
+import { loader } from "@shoru/listrx";
 import { initPlugins } from "./initPlugins.js";
 import { debounce, fetchFile, fetchFolder, getDirentStat } from "#helpers.js";
 import { addPlugins, removePluginsByFile, removePluginsByFolder } from "./plugins-manager.js"
@@ -9,7 +9,7 @@ const { HMR_TIMEOUT, PLUGINS_DIR, DEFAULT_TAG } = globalThis;
 
 await initPlugins();
 
-const spinner = ora("Changes detected, reloading plugins...");
+const spinner = loader("Changes detected, reloading plugins...");
 
 const debouncedReload = debounce(async (direntName) => {
   if (!direntName) return;

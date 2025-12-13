@@ -4,9 +4,11 @@ globalThis.TITLE_GRADIENT = [
   { color: "#FDBB2D", pos: 1 }
 ]
 
+globalThis.PROVIDER = "sqlite"
+
 globalThis.BOT_NAM = "Kitten Bot";
 globalThis.AUTHOR_NAM = "Aymane Shoru";
-globalThis.VERSION = "v0.0.1";
+globalThis.VERSION = "v0.0.2";
 globalThis.TIME_ZONE = "Africa/Casablanca";
 
 globalThis.PLUGINS_DIR = "./plugins";

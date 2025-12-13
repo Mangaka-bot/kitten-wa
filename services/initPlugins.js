@@ -10,11 +10,11 @@ export const initPlugins = async () => {
   
   const filesPromises = dir
     .filter(d => !d.isDirectory() && d.name.endsWith(".js"))
-    .map(f => fetchFile(join(PLUGINS_DIR, f.name), DEFAULT_TAG))
+    .flatMap(f => fetchFile(join(PLUGINS_DIR, f.name), DEFAULT_TAG))
 
   const foldersPromises = dir
     .filter(d => d.isDirectory())
-    .map(d => fetchFolder(join(PLUGINS_DIR, d.name)))
+    .flatMap(d => fetchFolder(join(PLUGINS_DIR, d.name)))
   
   const items = (await Promise.all([...filesPromises, ...foldersPromises]))
   .flat(Infinity)

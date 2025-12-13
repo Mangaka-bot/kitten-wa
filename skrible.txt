@@ -1,36 +1,23 @@
-### TD:
-* all other event listeners
-* sock.chat:
-    * groupMetaData (=info) <-- getPN
-    * groupParticipantsUpdate
-    * chatModify
-* stickerInfo [wa-sticker-formatter]
-* toVcard(pn, name, org)
-* [link-preview-js]
-* [mongo-baileys] for auth
-* sock.send: provides better handling for advanced message types [wa-sticker-formatter]
+> TD:
+  * all other event listeners
+  * [wa-sticker-formatter]
+  * [link-preview-js]
+  * toVcard(pn, name, org)
 
-### big lines:
-* MongoDB Store
-* Caching
-* Multy Device support
+proper ms&s timestamp
 
+model Session {
+  id                  Int           @id @default(autoincrement())
+  creds               Json
+  keys                Json
+}
 
-Go to https://pris.ly/ppg-init for detailed instructions.
-
-1. Define your database schema
-Open the schema.prisma file and define your first models. Check the docs if you need inspiration: https://pris.ly/ppg-init.
-
-2. Apply migrations
-Run the following command to create and apply a migration:
-npx prisma migrate dev --name init
-
-3. Manage your data
-View and edit your data locally by running this command:
-npx prisma studio
-
-...or online in Console:
-https://console.prisma.io/cmi1qiac201c3udfpm12p1new/cmi1rcmp101g5udfpqbxdjsog/cmi1rcmp101g6udfphutjeuwg/studio
-
-4. Send queries from your app
-To access your database from a JavaScript/TypeScript app, you need to use Prisma ORM. Go here for step-by-step instructions: https://pris.ly/ppg-init
++---------------------------------------------------------+
+|                  After oficial release                  |
++-------------------------+-------------------------------+
+| > CURRENT               | > THEN                        |
++-------------------------+-------------------------------+
+| - Single Device         | - Multi Device                |
+| - SQLite only           | - SQLite, MongoDB, PostgreSQL |
+| - Multi file auth state | - In database auth state      |
++-------------------------+-------------------------------+

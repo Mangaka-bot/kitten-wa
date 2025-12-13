@@ -1,33 +1,41 @@
 {
-  "name": "kitten Bot",
-  "version": "0.0.1",
+  "name": "kitten-wa",
+  "version": "0.0.2",
   "type": "module",
   "main": "main.js",
   "scripts": {
     "migrate": "npx prisma migrate dev --name init",
+    "reset": "npx prisma migrate reset",
     "start": "node --no-warnings main.js",
     "lint": "eslint --fix",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "author": "",
-  "license": "ISC",
+  "author": "Aymane Shoru",
+  "license": "MIT",
   "description": "",
   "imports": {
-    "#helpers.js": "./helpers/index.js"
+    "#helpers.js": "./helpers/index.js",
+    "#db.js": "./prisma/prisma.js"
   },
   "dependencies": {
     "@eslint/create-config": "^1.11.0",
-    "@prisma/client": "^6.19.0",
-    "baileys": "^7.0.0-rc.6",
+    "@hapi/boom": "^10.0.1",
+    "@inquirer/prompts": "^8.0.2",
+    "@prisma/adapter-better-sqlite3": "^7.0.0",
+    "@prisma/client": "^7.1.0",
+    "@shoru/listrx": "^2.1.4",
+    "baileys": "^7.0.0-rc.9",
+    "boxen": "^8.0.1",
+    "canvas": "^3.2.0",
+    "chalk": "^5.6.2",
     "dotenv": "^17.2.3",
     "ffmpeg": "^0.0.4",
     "figlet": "^1.9.4",
     "gradient-string": "^3.0.0",
     "i18next": "^25.6.1",
     "i18next-fs-backend": "^2.6.0",
-    "ora": "^9.0.0",
-    "prisma": "^6.19.0",
-    "qrcode": "^1.5.4",
+    "inquirer": "^13.0.2",
+    "lru-cache": "^11.2.4",
     "qrcode-terminal": "^0.12.0",
     "sharp": "^0.34.5",
     "strip-ansi": "^7.1.2",
@@ -36,6 +44,7 @@
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "eslint": "^9.39.1",
-    "globals": "^16.5.0"
+    "globals": "^16.5.0",
+    "prisma": "^7.1.0"
   }
 }

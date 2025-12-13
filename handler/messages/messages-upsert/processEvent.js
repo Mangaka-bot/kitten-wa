@@ -5,25 +5,28 @@ import {
   downloadMediaMessage
  } from "baileys"
 
-import { getTimeString } from "#helpers.js";
+import { getTimeString, toNumber } from "#helpers.js";
 import { extractMessage, extractContent, getPN } from "./toolkit/index.js";
 
 const load = async x => downloadMediaMessage(x, "buffer", {});
 
 export const processEvent = (sock, msg) => {
+  const myId = sock.user.lid.split(":")[0] + "@lid";
   const [type, messageData] = extractMessage(msg.message);
 
   const {
     pushName: name,
-    messageTimestamp: timestamp,
+    messageTimestamp,
+    participant: p1,
     broadcast,
     key: {
       remoteJid: jid, 
       id, fromMe,
-      participant,
+      participant: p2,
       addressingMode
-    }} = msg;
-  const sender = participant || jid;
+    }
+  } = msg;
+  const sender = fromMe ? myId : p2 || p1 || jid;
 
   const {
     quotedMessage,
@@ -35,11 +38,12 @@ export const processEvent = (sock, msg) => {
   const [quotedType, quotedData] = extractMessage(quotedMessage);
 
   return {
-    type, sender, name, jid, id, timestamp, broadcast, isForwarded, forwardingScore, fromMe,
+    type, sender, name, jid, id, broadcast, isForwarded, forwardingScore, fromMe,
+    timestamp: toNumber(messageTimestamp),
     isLid: addressingMode === "lid",
     device: getDevice(id),
     isGroup: isJidGroup(jid),
-    timeString: getTimeString(timestamp),
+    timeString: getTimeString(messageTimestamp),
     ...extractContent(messageData),
     key: msg.key,
     contextInfo: {

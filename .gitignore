@@ -1,5 +1,5 @@
 session/
 generated/prisma
-prisma/historySync.js
 node_modules
 .vscode
+skrible.txt
