@@ -3,7 +3,7 @@
 <img src="https://github.com/Mangaka-bot/kitten-wa/blob/main/assets/cat.png" align="right" width="200" alt="Kitten Logo">
 
 <a name="-kitten"></a>
-<font size="6" href="#-kitten"><b>Kitten Framework</b></font>
+# **Kitten Framework**
 
 ### A powerful `Node.js` framework to simplify creating WhatsApp bots, built on top of the [Baileys](https://github.com/WhiskeySockets/Baileys) library. 😺
 
@@ -14,7 +14,7 @@
 
 ---
 
-<br>
+<br clear="left"/>
 
 <div align="center">
 
