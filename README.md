@@ -1,6 +1,6 @@
 <div align="left">
 
-<img src="./assets/cat.png" align="right" width="200" alt="Kitten Logo">
+<img src="https://github.com/Mangaka-bot/kitten-wa/blob/main/assets/cat.png" align="right" width="200" alt="Kitten Logo">
 
 <a name="-kitten"></a>
 <font size="6" href="#-kitten"><b>Kitten Framework</b></font>
