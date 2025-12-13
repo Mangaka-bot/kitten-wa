@@ -1,20 +1,24 @@
 import { readdir } from "fs/promises";
 import { join } from "path";
+import config from "config"
 import { fetchFile, fetchFolder } from "#helpers.js";
 import { addPlugins } from "./plugins-manager.js";
 
-const { PLUGINS_DIR, DEFAULT_TAG } = globalThis;
+const {
+  dir: pluginsDir,
+  defaultTag,
+} = config.plugins;
 
 export const initPlugins = async () => {
-  const dir = await readdir(PLUGINS_DIR, { withFileTypes: true });
+  const dir = await readdir(pluginsDir, { withFileTypes: true });
   
   const filesPromises = dir
     .filter(d => !d.isDirectory() && d.name.endsWith(".js"))
-    .flatMap(f => fetchFile(join(PLUGINS_DIR, f.name), DEFAULT_TAG))
+    .flatMap(f => fetchFile(join(pluginsDir, f.name), defaultTag))
 
   const foldersPromises = dir
     .filter(d => d.isDirectory())
-    .flatMap(d => fetchFolder(join(PLUGINS_DIR, d.name)))
+    .flatMap(d => fetchFolder(join(pluginsDir, d.name)))
   
   const items = (await Promise.all([...filesPromises, ...foldersPromises]))
   .flat(Infinity)

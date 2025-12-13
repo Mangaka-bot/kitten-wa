@@ -1,0 +1,19 @@
+{
+  "author": "Aymane Shoru",
+  "version": "v0.0.2",
+  "time-zone": "Africa/Casablanca",
+  "db": {
+    "provider": "sqlite"
+  },
+  "bot": {
+    "name":"Kitten Bot",
+    "tag": "BOT",
+    "title-gradient": [
+      { "color": "#22C1C3", "pos": 0 },
+      { "color": "#FDBB2D", "pos": 1 }
+    ]
+  },
+  "plugins": {
+    "default-tag": "Others"
+  }
+}

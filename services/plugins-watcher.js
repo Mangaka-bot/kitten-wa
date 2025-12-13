@@ -1,11 +1,16 @@
 import { watch } from "fs";
 import { join, sep } from "path";
 import { loader } from "@shoru/listrx";
+import config from "config"
 import { initPlugins } from "./initPlugins.js";
 import { debounce, fetchFile, fetchFolder, getDirentStat } from "#helpers.js";
-import { addPlugins, removePluginsByFile, removePluginsByFolder } from "./plugins-manager.js"
+import { addPlugins, removePluginsByFile, removePluginsByFolder } from "./plugins-manager.js";
 
-const { HMR_TIMEOUT, PLUGINS_DIR, DEFAULT_TAG } = globalThis;
+const {
+  hmrTimeout,
+  defaultTag,
+  dir: pluginsDir
+} = config.plugins;
 
 await initPlugins();
 
@@ -14,7 +19,7 @@ const spinner = loader("Changes detected, reloading plugins...");
 const debouncedReload = debounce(async (direntName) => {
   if (!direntName) return;
 
-  const fullPath = join(PLUGINS_DIR, direntName);
+  const fullPath = join(pluginsDir, direntName);
   const direntStat = await getDirentStat(fullPath);
 
   switch (direntStat) {
@@ -39,7 +44,7 @@ const debouncedReload = debounce(async (direntName) => {
       spinner.start();
       removePluginsByFile(fullPath);
       const pathParts = direntName.split(sep);
-      const tag = pathParts.length > 1 ? pathParts[0] : DEFAULT_TAG;
+      const tag = pathParts.length > 1 ? pathParts[0] : defaultTag;
       const items = await fetchFile(fullPath, tag);
       if (items.length === 0) return spinner.stop();
       addPlugins(items);
@@ -48,10 +53,10 @@ const debouncedReload = debounce(async (direntName) => {
     };
     case "error": return;
   }
-}, HMR_TIMEOUT)
+}, hmrTimeout)
 
 watch(
-  PLUGINS_DIR, 
+  pluginsDir, 
   { recursive: true },
   (_, direntName) => debouncedReload(direntName)
 )

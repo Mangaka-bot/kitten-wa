@@ -8,7 +8,6 @@ import chalk from "chalk";
 import { loader } from "@shoru/listrx";
 
 import "dotenv/config";
-import "./config.js";
 import "./services/plugins-watcher.js";
 import "./services/printLogo.js";
 

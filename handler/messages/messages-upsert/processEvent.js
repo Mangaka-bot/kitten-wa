@@ -54,7 +54,7 @@ export const processEvent = (sock, msg) => {
     msg,
     load: async() => await load(msg),
     senderIs: (jid) => areJidsSameUser(sender, jid),
-    getPN: async() => await getPN(sock, jid, sender),
+    getPN: async() => await getPN(sock, sender),
     quoted: quotedData ? {
       type: quotedType,
       sender: quotedSender,
@@ -73,7 +73,7 @@ export const processEvent = (sock, msg) => {
       msg: quotedMessage,
       load: async() => await load(quotedMessage),
       senderIs: (jid) => areJidsSameUser(quotedSender, jid),
-      getPN: async () => await getPN(sock, jid, quotedSender)
+      getPN: async () => await getPN(sock, quotedSender)
     }: undefined,
   }
 }
