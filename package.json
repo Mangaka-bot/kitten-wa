@@ -4,6 +4,9 @@
   "version": "0.0.1",
   "description": "A powerful Node.js framework to simplify making WhatsApp Bots",
   "main": "src/index.js",
+    "repository": {
+    "url": "git+https://github.com/Mangaka-bot/kitten-wa.git"
+  },
   "scripts": {
     "start": "node --no-warnings src/index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
