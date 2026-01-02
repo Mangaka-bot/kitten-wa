@@ -1,8 +1,9 @@
 import { select, input } from "@inquirer/prompts";
 import chalk from "chalk";
 import { logger } from "#internals.js";
+import { pauseSpinner } from "#utils.js";
 
-export const getConnectionConfig = async () => {
+const connectionConfig = async () => {
   try {
     process.stdout.write("\n");
     const type = await select({
@@ -46,3 +47,5 @@ export const getConnectionConfig = async () => {
       process.exit(0);
   }
 };
+
+export const getConnectionConfig = () => pauseSpinner(connectionConfig);

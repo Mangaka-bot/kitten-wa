@@ -4,7 +4,6 @@ import qrcode from "qrcode-terminal";
 import chalk from "chalk";
 import { logger } from "#internals.js";
 import { initSession } from "#auth.js";
-import { pauseSpinner } from "#utils.js";
 import { getConnectionConfig } from "./getConnectionConfig.js";
 
 export const ConnectionState = Object.freeze({
@@ -349,7 +348,7 @@ export class Client {
     }
 
     this.#isConfiguring = true;
-    this.#authConfig ??= await pauseSpinner(getConnectionConfig);
+    this.#authConfig ??= await getConnectionConfig();
     this.#isConfiguring = false;
 
     if (this.#authConfig.type === "pn") {
