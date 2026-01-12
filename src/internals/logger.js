@@ -12,4 +12,4 @@ const logger = pino({
 
 logger.prompt = console.log.bind(console);
 
-export { logger };
+export { logger, pino };

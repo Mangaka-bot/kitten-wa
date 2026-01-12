@@ -35,6 +35,11 @@ export const loadConfig = async () => {
   return defu(userConfig, defaultConfig);
 };
 
-const configObject = await loadConfig()
+let cachedConfig = null;
 
-export const config = Object.freeze(configObject);
+export const getConfig = async () => {
+  if (!cachedConfig) {
+    cachedConfig = Object.freeze(await loadConfig());
+  }
+  return cachedConfig;
+};

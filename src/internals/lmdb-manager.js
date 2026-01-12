@@ -1,6 +1,8 @@
 import { open } from 'lmdb';
 import { logger } from './logger.js';
-import { config } from './config.js';
+import { getConfig } from './config.js';
+
+const config = await getConfig();
 
 class LMDBDatabaseManager {
   #db = null;

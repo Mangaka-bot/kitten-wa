@@ -1,10 +1,10 @@
 {
   "name": "@shoru/kitten",
   "type": "module",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "A powerful Node.js framework to simplify making WhatsApp Bots",
   "main": "src/index.js",
-    "repository": {
+  "repository": {
     "url": "git+https://github.com/Mangaka-bot/kitten-wa.git"
   },
   "scripts": {
@@ -13,13 +13,13 @@
   },
   "imports": {
     "#utils.js": "./src/utils/index.js",
-    "#config.js": "./src/config/default.js",
     "#auth.js": "./src/auth/index.js",
     "#internals.js": "./src/internals/index.js",
-    "#client.js": "./src/client/index.js"
+    "#client.js": "./src/client/index.js",
+    "#formatter.js": "./src/formatter/index.js"
   },
   "exports": {
-    ".":  "./src/index.js"
+    ".": "./src/index.js"
   },
   "author": "Aymane Shoru",
   "license": "MIT",
@@ -27,8 +27,10 @@
     "@hapi/boom": "^10.0.1",
     "@inquirer/prompts": "^8.1.0",
     "@shoru/spindle": "^1.0.6",
+    "async-mutex": "^0.5.0",
     "baileys": "^7.0.0-rc.9",
     "chalk": "^5.6.2",
+    "chokidar": "^5.0.0",
     "cosmiconfig": "^9.0.0",
     "defu": "^6.1.4",
     "lmdb": "^3.4.4",

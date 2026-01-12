@@ -17,11 +17,9 @@ const keyBuilder = (sessionId) => {
 };
 
 const genID = async (db) => {
-  return db.transaction(() => {
-    const id = (db.get(COUNTER_KEY) ?? 0) + 1;
-    db.put(COUNTER_KEY, id);
-    return id;
-  });
+  const id = (db.get(COUNTER_KEY) ?? 0) + 1;
+  await db.put(COUNTER_KEY, id);
+  return id;
 };
 
 const getSessionId = async (db, input) => {
@@ -37,6 +35,17 @@ export async function useLMDBAuthState(inputSessionId) {
   const sessionId = await getSessionId(db, inputSessionId);
   const keys = keyBuilder(sessionId);
 
+  const existingCreds = db.get(keys.creds);
+  let creds;
+  
+  if (existingCreds != null) {
+    creds = deserialize(existingCreds);
+  } else {
+    creds = initAuthCreds();
+    await db.put(keys.creds, serialize(creds));
+    await db.put(`${SESSION_PREFIX}${sessionId}`, true);
+  }
+
   const writeCreds = async (credsData) => {
     await db.put(keys.creds, serialize(credsData));
   };
@@ -44,89 +53,86 @@ export async function useLMDBAuthState(inputSessionId) {
   const getKeys = (type, ids) => {
     if (!ids.length) return {};
 
-    const keyList = ids.map((id) => keys.forKey(type, id));
-    const values = db.getMany(keyList);
-
     const result = {};
-    for (let i = 0; i < ids.length; i++) {
-      const rawValue = values[i];
+    for (const id of ids) {
+      const dbKey = keys.forKey(type, id);
+      const rawValue = db.get(dbKey);
 
-      if (rawValue) {
+      if (rawValue != null) {
         try {
           let parsed = deserialize(rawValue);
           if (type === "app-state-sync-key" && parsed) {
             parsed = proto.Message.AppStateSyncKeyData.fromObject(parsed);
           }
-          result[ids[i]] = parsed;
+          result[id] = parsed;
         } catch (err) {
           logger.error(
             err,
-            `[LMDBAuthState] Deserialize error: ${type}:${ids[i]}`
+            `[LMDBAuthState] Deserialize error: ${type}:${id}`
           );
-          db.remove(keys.forKey(type, ids[i]));
+          result[id] = null;
         }
+      } else {
+        result[id] = null;
       }
     }
     return result;
   };
 
   const setKeys = async (data) => {
-    await db.batch(() => {
-      for (const [category, categoryData] of Object.entries(data)) {
-        if (!categoryData) continue;
-        for (const [id, value] of Object.entries(categoryData)) {
-          const key = keys.forKey(category, id);
-          if (value != null) {
-            db.put(key, serialize(value));
-          } else {
-            db.remove(key);
-          }
+    const writes = [];
+    
+    for (const [category, categoryData] of Object.entries(data)) {
+      if (!categoryData) continue;
+      for (const [id, value] of Object.entries(categoryData)) {
+        const key = keys.forKey(category, id);
+        if (value != null) {
+          writes.push(db.put(key, serialize(value)));
+        } else {
+          writes.push(db.remove(key));
         }
       }
-    });
+    }
+    
+    if (writes.length > 0) {
+      await Promise.all(writes);
+    }
   };
 
   const clearKeys = async () => {
     let count = 0;
-    await db.batch(() => {
-      for (const { key } of db.getRange({
-        start: keys.sessionPrefix,
-        end: `${keys.sessionPrefix}\xFF`,
-      })) {
-        if (key !== keys.creds) {
-          db.remove(key);
-          count++;
-        }
+    const writes = [];
+    
+    for (const { key } of db.getRange({
+      start: keys.sessionPrefix,
+      end: `${keys.sessionPrefix}\xFF`,
+    })) {
+      if (key !== keys.creds) {
+        writes.push(db.remove(key));
+        count++;
       }
-    });
+    }
+    
+    if (writes.length > 0) {
+      await Promise.all(writes);
+    }
     logger.debug(`[LMDBAuthState] Cleared ${count} keys`);
   };
 
   const deleteSession = async () => {
-    await db.batch(() => {
-      for (const { key } of db.getRange({
-        start: keys.sessionPrefix,
-        end: `${keys.sessionPrefix}\xFF`,
-      })) {
-        db.remove(key);
-      }
-      db.remove(`${SESSION_PREFIX}${sessionId}`);
-    });
-
+    const writes = [];
+    
+    for (const { key } of db.getRange({
+      start: keys.sessionPrefix,
+      end: `${keys.sessionPrefix}\xFF`,
+    })) {
+      writes.push(db.remove(key));
+    }
+    writes.push(db.remove(`${SESSION_PREFIX}${sessionId}`));
+    
+    await Promise.all(writes);
     logger.debug(`[LMDBAuthState] Deleted session ${sessionId}`);
   };
-
-  const creds = await db.transaction(() => {
-    const existing = db.get(keys.creds);
-    if (existing != null) {
-      return deserialize(existing);
-    }
-
-    const newCreds = initAuthCreds();
-    db.put(keys.creds, serialize(newCreds));
-    db.put(`${SESSION_PREFIX}${sessionId}`, true);
-    return newCreds;
-  });
 
   return {
     state: {

@@ -1,6 +1,8 @@
 import { makeWASocket } from "baileys";
 import { useLMDBAuthState } from "./lmdb-auth-state.js";
-import { config } from "#internals.js";
+import { getConfig } from "#internals.js";
+
+const config = await getConfig();
 
 export const initSession = async ({ socketConfig, id } = {}) => {
   try {

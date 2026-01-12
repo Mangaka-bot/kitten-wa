@@ -20,7 +20,20 @@ const db = {
   noMetaSync: false,
 };
 
+const plugins = {
+  dir: 'plugins',
+  prefixes: ['.', '\\', '!'],
+  defaultEvent: 'messages.upsert',
+  hmr: {
+    enable: false,
+    debounce: 200,
+    debug: false
+  }
+}
+
 export default {
   db,
-  socket
+  socket,
+  plugins,
+  timeZone: 'Africa/Casablanca'
 }
