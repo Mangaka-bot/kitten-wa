@@ -156,7 +156,7 @@ export class PluginManager {
   static async #loadFile(filePath, parent, register = true) {
     const exec = async () => {
       const { mtimeMs } = await fs.stat(filePath);
-      const mod = await import(`${pathToFileURL(filePath)}?v=${mtimeMs | 0}`);
+      const mod = await import(`${pathToFileURL(filePath)}?v=${Math.trunc(mtimeMs)}`);
       const loaded = new Map();
 
       for (const [name, value] of Object.entries(mod)) {
@@ -207,9 +207,7 @@ export class PluginManager {
 
     const prefixes = prefixOpt === false
       ? null
-      : prefixOpt
-        ? new Set([prefixOpt].flat())
-        : new Set(PREFIXES);
+      : new Set([prefixOpt ?? PREFIXES].flat());
 
     return {
       strings,
@@ -312,7 +310,7 @@ export class PluginManager {
   #createHandler(event) {
     const bucket = PluginManager.#buckets[event];
     const sock = this.#sock;
-    const dispatch = (ctx) => this.#dispatch(sock, ctx, bucket);
+    const dispatch = (ctx, event) => this.#dispatch(sock, ctx, bucket, event);
 
     const handlers = {
       'messages.upsert': ({ messages, type }) => {
@@ -329,30 +327,30 @@ export class PluginManager {
 
       'messages.update': (updates) => {
         for (const { key, update } of updates) {
-          if (key?.remoteJid) dispatch({ event, key, update, jid: key.remoteJid });
+          if (key?.remoteJid) dispatch({ key, update, jid: key.remoteJid }, event);
         }
       },
 
       'messages.reaction': (reactions) => {
         for (const { key, reaction } of reactions) {
-          if (key?.remoteJid) dispatch({ event, key, reaction, jid: key.remoteJid, emoji: reaction?.text });
+          if (key?.remoteJid) dispatch({ key, reaction, jid: key.remoteJid, emoji: reaction?.text }, event);
         }
       },
 
-      'group-participants.update': (u) => dispatch({ event, ...u }),
-      'connection.update': (u) => dispatch({ event, ...u }),
-      'creds.update': (creds) => dispatch({ event, creds }),
-      'call': (calls) => calls.forEach(c => dispatch({ event, ...c })),
+      'group-participants.update': (u) => dispatch(u, event),
+      'connection.update': (u) => dispatch(u, event),
+      'creds.update': (creds) => dispatch({ creds }, event),
+      'call': (calls) => calls.forEach(c => dispatch(c, event)),
     };
 
-    return handlers[event] ?? ((data) => dispatch({ event, data }));
+    return handlers[event] ?? ((data) => dispatch({ data }, event));
   }
 
-  #dispatch(sock, ctx, bucket) {
-    if (this.#destroyed) return;
+  #dispatch(sock, ctx, bucket, event) {
+    if (this.#destroyed || !ctx) return;
 
     for (const [id, plugin] of bucket.auto) {
-      this.#execute(id, plugin, sock, ctx, null);
+      this.#execute(id, plugin, sock, ctx, event);
     }
 
     if (bucket.match.size && ctx.body) {
@@ -361,15 +359,15 @@ export class PluginManager {
         if (!matchers) continue;
 
         const result = PluginManager.#test(matchers, ctx.body);
-        if (result) this.#execute(id, plugin, sock, ctx, result);
+        if (result) this.#execute(id, plugin, sock, ctx, event, result);
       }
     }
   }
 
-  async #execute(id, plugin, sock, ctx, match) {
+  async #execute(id, plugin, sock, ctx, event, match) {
     if (this.#destroyed) return;
     try {
-      await plugin(sock, match ? { ...ctx, _match: match } : ctx, ctx.event);
+      await plugin(sock, match ? { ...ctx, _match: match } : ctx, event);
     } catch (err) {
       PluginManager.#handleError(`[Plugin:${id}]`, err);
     }

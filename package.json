@@ -1,7 +1,7 @@
 {
   "name": "@shoru/kitten",
   "type": "module",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "A powerful Node.js framework to simplify making WhatsApp Bots",
   "main": "src/index.js",
   "repository": {

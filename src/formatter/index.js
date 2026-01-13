@@ -5,10 +5,7 @@ export const formatter = (wa, event, eventName) => {
   
   switch (eventName) {
     case 'messages.upsert':
-      return {
-        ...formatMessage(wa, event),
-        event: eventName
-      };
+      return formatMessage(wa, event);
     default: return event;
   }
 }
