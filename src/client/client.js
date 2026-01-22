@@ -2,7 +2,8 @@ import { DisconnectReason } from 'baileys';
 import { Boom } from '@hapi/boom';
 import qrcode from 'qrcode-terminal';
 import chalk from 'chalk';
-import { logger, pino, pluginManager } from '#internals.js';
+import { pluginManager } from '#plugins.js';
+import { logger, pino } from '#internals.js';
 import { initSession, listSessions } from '#auth.js';
 import { getConnectionConfig } from './getConnectionConfig.js';
 

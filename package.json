@@ -16,7 +16,8 @@
     "#auth.js": "./src/auth/index.js",
     "#internals.js": "./src/internals/index.js",
     "#client.js": "./src/client/index.js",
-    "#formatter.js": "./src/formatter/index.js"
+    "#formatter.js": "./src/formatter/index.js",
+    "#plugins.js": "./src/plugins/index.js"
   },
   "exports": {
     ".": "./src/index.js"
