@@ -11,18 +11,20 @@ import { setPlugin, registerToBuckets } from './registry.js';
 const fileLocks = new Map();
 
 export function getLock(filePath) {
-  let lock = fileLocks.get(filePath);
+  const resolved = path.resolve(filePath);
+  let lock = fileLocks.get(resolved);
   if (!lock) {
     lock = new Mutex();
-    fileLocks.set(filePath, lock);
+    fileLocks.set(resolved, lock);
   }
   return lock;
 }
 
 export function deleteLockIfUnused(filePath) {
-  const lock = fileLocks.get(filePath);
+  const resolved = path.resolve(filePath);
+  const lock = fileLocks.get(resolved);
   if (lock && !lock.isLocked()) {
-    fileLocks.delete(filePath);
+    fileLocks.delete(resolved);
   }
 }
 
@@ -31,7 +33,8 @@ export function clearLocks() {
 }
 
 export function getParentFolder(dirPath) {
-  return path.relative(PLUGIN_DIR, dirPath).split(path.sep)[0] || null;
+  const rel = path.relative(PLUGIN_DIR, path.resolve(dirPath));
+  return rel ? rel.split(/[\\/]/)[0] : null;
 }
 
 function normalize(value) {
@@ -46,25 +49,27 @@ function normalize(value) {
 }
 
 export async function loadFile(filePath, parent, shouldRegister = true) {
+  const resolvedPath = path.resolve(filePath);
   const execute = async () => {
-    const { mtimeMs } = await fs.stat(filePath);
-    const mod = await import(`${pathToFileURL(filePath)}?v=${Math.trunc(mtimeMs)}`);
+    const { mtimeMs } = await fs.stat(resolvedPath);
+    const mod = await import(`${pathToFileURL(resolvedPath)}?v=${Math.trunc(mtimeMs)}`);
     const loaded = new Map();
 
     for (const [name, value] of Object.entries(mod)) {
       const plugin = normalize(value);
       if (!plugin || plugin.enabled === false) continue;
 
-      const id = path.relative(PLUGIN_DIR, filePath)
+      const id = path.relative(PLUGIN_DIR, resolvedPath)
         .replace(/\.[jt]s$/, '')
-        .replaceAll(path.sep, '/') + ':' + name;
+        .replaceAll(path.sep, '/')
+        .replaceAll('\\', '/') + ':' + name;
 
       const events = (Array.isArray(plugin.events) ? plugin.events : [])
         .filter(e => EVENTS.has(e));
 
       plugin._meta = {
         parent,
-        filePath,
+        filePath: resolvedPath,
         id,
         events: events.length ? events : [defaultEvent],
         matchers: compile(plugin.match, plugin.prefix),
@@ -82,7 +87,7 @@ export async function loadFile(filePath, parent, shouldRegister = true) {
   };
 
   return shouldRegister
-    ? getLock(filePath).runExclusive(execute)
+    ? getLock(resolvedPath).runExclusive(execute)
     : execute();
 }
 
@@ -101,9 +106,10 @@ export async function loadAll() {
       !e.name.startsWith('_')
     )
     .map(e => {
-      const dirPath = e.parentPath ?? e.path;
+      const dirPath = e.parentPath ?? e.path ?? PLUGIN_DIR;
+      const fullPath = path.resolve(dirPath, e.name);
       return {
-        path: path.join(dirPath, e.name),
+        path: fullPath,
         parent: getParentFolder(dirPath)
       };
     });

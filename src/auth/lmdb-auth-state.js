@@ -17,13 +17,26 @@ const keyBuilder = (sessionId) => {
 };
 
 const genID = async (db) => {
-  const id = (db.get(COUNTER_KEY) ?? 0) + 1;
+  const current = db.get(COUNTER_KEY);
+  let id;
+  if (current == null) {
+    const existing = listSessions();
+    id = existing.length > 0 ? Math.max(...existing) + 1 : 0;
+  } else {
+    id = current + 1;
+  }
   await db.put(COUNTER_KEY, id);
   return id;
 };
 
 const getSessionId = async (db, input) => {
-  if (input == null) return genID(db);
+  if (input == null) {
+    const existing = listSessions();
+    if (existing.length > 0) {
+      return existing[0];
+    }
+    return genID(db);
+  }
   if (Number.isInteger(input) && input >= 0) return input;
   throw new TypeError(
     'Invalid sessionId: expected null/undefined or non-negative integer'
@@ -36,18 +49,43 @@ export async function useLMDBAuthState(inputSessionId) {
   const keys = keyBuilder(sessionId);
 
   const existingCreds = db.get(keys.creds);
-  let creds;
-  
+  let creds = null;
+  let isNew = false;
+
   if (existingCreds != null) {
-    creds = deserialize(existingCreds);
+    try {
+      creds = deserialize(existingCreds);
+    } catch {
+      logger.warn(`[LMDBAuthState] Corrupted credentials for session ${sessionId}, purging session`);
+      creds = null;
+    }
+
+    if (creds && (creds.registered || creds.me)) {
+      await db.put(`${SESSION_PREFIX}${sessionId}`, true);
+    } else {
+      // Credentials not registered or corrupted: clean up old session keys and start fresh
+      for (const { key } of db.getRange({
+        start: keys.sessionPrefix,
+        end: `${keys.sessionPrefix}\xFF`,
+      })) {
+        await db.remove(key);
+      }
+      await db.remove(`${SESSION_PREFIX}${sessionId}`);
+      creds = initAuthCreds();
+      await db.put(keys.creds, serialize(creds));
+      isNew = true;
+    }
   } else {
     creds = initAuthCreds();
     await db.put(keys.creds, serialize(creds));
-    await db.put(`${SESSION_PREFIX}${sessionId}`, true);
+    isNew = true;
   }
 
   const writeCreds = async (credsData) => {
     await db.put(keys.creds, serialize(credsData));
+    if (credsData?.registered || credsData?.me) {
+      await db.put(`${SESSION_PREFIX}${sessionId}`, true);
+    }
   };
 
   const getKeys = (type, ids) => {
@@ -81,7 +119,7 @@ export async function useLMDBAuthState(inputSessionId) {
 
   const setKeys = async (data) => {
     const writes = [];
-    
+
     for (const [category, categoryData] of Object.entries(data)) {
       if (!categoryData) continue;
       for (const [id, value] of Object.entries(categoryData)) {
@@ -93,7 +131,7 @@ export async function useLMDBAuthState(inputSessionId) {
         }
       }
     }
-    
+
     if (writes.length > 0) {
       await Promise.all(writes);
     }
@@ -102,7 +140,7 @@ export async function useLMDBAuthState(inputSessionId) {
   const clearKeys = async () => {
     let count = 0;
     const writes = [];
-    
+
     for (const { key } of db.getRange({
       start: keys.sessionPrefix,
       end: `${keys.sessionPrefix}\xFF`,
@@ -112,7 +150,7 @@ export async function useLMDBAuthState(inputSessionId) {
         count++;
       }
     }
-    
+
     if (writes.length > 0) {
       await Promise.all(writes);
     }
@@ -121,7 +159,7 @@ export async function useLMDBAuthState(inputSessionId) {
 
   const deleteSession = async () => {
     const writes = [];
-    
+
     for (const { key } of db.getRange({
       start: keys.sessionPrefix,
       end: `${keys.sessionPrefix}\xFF`,
@@ -129,7 +167,7 @@ export async function useLMDBAuthState(inputSessionId) {
       writes.push(db.remove(key));
     }
     writes.push(db.remove(`${SESSION_PREFIX}${sessionId}`));
-    
+
     await Promise.all(writes);
     logger.debug(`[LMDBAuthState] Deleted session ${sessionId}`);
   };
@@ -148,30 +186,86 @@ export async function useLMDBAuthState(inputSessionId) {
       delete: deleteSession,
       clear: clearKeys,
       id: sessionId,
+      isNew,
     },
   };
 }
 
 export function listSessions() {
-  if (!LMDBManager.isOpen) return [];
-
   const { db } = LMDBManager;
-  const sessions = [];
+  if (!db) return [];
+
+  const sessions = new Set();
 
   for (const { key } of db.getRange({
     start: SESSION_PREFIX,
     end: `${SESSION_PREFIX}\xFF`,
   })) {
     const id = parseInt(key.slice(SESSION_PREFIX.length), 10);
-    if (!isNaN(id)) sessions.push(id);
+    if (!isNaN(id)) {
+      const rawCreds = db.get(`${KEY_PREFIX}:${id}:creds`);
+      if (rawCreds != null) {
+        try {
+          const creds = deserialize(rawCreds);
+          if (creds?.registered || creds?.me) {
+            sessions.add(id);
+          } else {
+            db.remove(key);
+          }
+        } catch {
+          db.remove(key);
+        }
+      } else {
+        db.remove(key);
+      }
+    }
   }
 
-  return sessions.sort((a, b) => a - b);
+  // Also check for existing credentials as fallback
+  for (const { key, value } of db.getRange({
+    start: `${KEY_PREFIX}:`,
+    end: `${KEY_PREFIX}:\xFF`,
+  })) {
+    if (key.endsWith(':creds')) {
+      const parts = key.split(':');
+      if (parts.length === 3 && parts[0] === KEY_PREFIX && parts[2] === 'creds') {
+        const id = parseInt(parts[1], 10);
+        if (!isNaN(id) && !sessions.has(id)) {
+          try {
+            const creds = deserialize(value);
+            if (creds?.registered || creds?.me) {
+              sessions.add(id);
+              db.put(`${SESSION_PREFIX}${id}`, true);
+            }
+          } catch {
+            /* ignore corrupted creds */
+          }
+        }
+      }
+    }
+  }
+
+  return [...sessions].sort((a, b) => a - b);
 }
 
 export function sessionExists(sessionId) {
-  if (!Number.isInteger(sessionId) || sessionId < 0 || !LMDBManager.isOpen)
-    return false;
+  if (!Number.isInteger(sessionId) || sessionId < 0) return false;
   const { db } = LMDBManager;
-  return db.get(`${SESSION_PREFIX}${sessionId}`) != null;
+  if (!db) return false;
+
+  const rawCreds = db.get(`${KEY_PREFIX}:${sessionId}:creds`);
+  if (rawCreds != null) {
+    try {
+      const creds = deserialize(rawCreds);
+      if (creds?.registered || creds?.me) {
+        db.put(`${SESSION_PREFIX}${sessionId}`, true);
+        return true;
+      }
+    } catch {
+      db.remove(`${SESSION_PREFIX}${sessionId}`);
+      return false;
+    }
+  }
+  db.remove(`${SESSION_PREFIX}${sessionId}`);
+  return false;
 }

@@ -1,6 +1,5 @@
 import { formatter } from '#formatter.js';
 import { getBucket } from './registry.js';
-import { test } from './matcher.js';
 import { handleError } from './handle-error.js';
 
 export function createHandler(event, sock, isDestroyed, execute) {
@@ -9,20 +8,58 @@ export function createHandler(event, sock, isDestroyed, execute) {
   const dispatch = (ctx) => {
     if (isDestroyed() || !ctx) return;
 
-    // Execute auto-triggered plugins
-    for (const [id, plugin] of bucket.auto) {
-      execute(id, plugin, sock, ctx, event, null);
+    // 1. Execute auto-triggered plugins
+    if (bucket.auto.size > 0) {
+      for (const [id, plugin] of bucket.auto) {
+        execute(id, plugin, sock, ctx, event, null);
+      }
     }
 
-    // Execute pattern-matched plugins
-    if (bucket.match.size && ctx.body) {
-      for (const [id, plugin] of bucket.match) {
-        const matchers = plugin._meta?.matchers;
-        if (!matchers) continue;
+    // 2. Execute pattern-matched plugins
+    if (bucket.allMatch.size > 0 && ctx.body) {
+      const trimmed = ctx.body.trim();
+      if (!trimmed) return;
+      const lower = trimmed.toLowerCase();
+      const spaceIdx = lower.indexOf(' ');
+      const firstToken = spaceIdx < 0 ? lower : lower.slice(0, spaceIdx);
 
-        const result = test(matchers, ctx.body);
-        if (result) {
-          execute(id, plugin, sock, ctx, event, result);
+      const executedIds = new Set();
+
+      // Fast O(1) command lookup (e.g. "!tst")
+      const matchedCommands = bucket.commandMap.get(firstToken);
+      if (matchedCommands) {
+        for (const item of matchedCommands) {
+          executedIds.add(item.id);
+          execute(item.id, item.plugin, sock, ctx, event, { match: item.match, prefix: item.prefix });
+        }
+      }
+
+      // Fast prefixless command lookup (plugins with prefix: false)
+      if (bucket.prefixlessMap.size > 0) {
+        const matchedPrefixless = bucket.prefixlessMap.get(firstToken);
+        if (matchedPrefixless) {
+          for (const item of matchedPrefixless) {
+            if (!executedIds.has(item.id)) {
+              executedIds.add(item.id);
+              execute(item.id, item.plugin, sock, ctx, event, { match: item.match, prefix: null });
+            }
+          }
+        }
+      }
+
+      // Execute regex plugins if any exist
+      if (bucket.regexList.size > 0) {
+        for (const [id, item] of bucket.regexList) {
+          if (executedIds.has(id)) continue;
+          for (const re of item.regexes) {
+            re.lastIndex = 0;
+            const m = re.exec(ctx.body);
+            if (m) {
+              executedIds.add(id);
+              execute(id, item.plugin, sock, ctx, event, { match: m, prefix: null });
+              break;
+            }
+          }
         }
       }
     }
@@ -63,7 +100,7 @@ export function createHandler(event, sock, isDestroyed, execute) {
               key,
               reaction,
               jid: key.remoteJid,
-              emoji: reaction?.text
+              emoji: reaction?.text,
             });
           }
         }
@@ -77,7 +114,7 @@ export function createHandler(event, sock, isDestroyed, execute) {
       return (creds) => dispatch({ creds });
 
     case 'call':
-      return (calls) => calls.forEach(c => dispatch(c));
+      return (calls) => calls.forEach((c) => dispatch(c));
 
     default:
       return (data) => dispatch({ data });

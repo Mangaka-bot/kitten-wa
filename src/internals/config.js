@@ -1,5 +1,13 @@
 import { cosmiconfig } from 'cosmiconfig';
-import { defu } from 'defu';
+import { createDefu } from 'defu';
+import path from 'path';
+
+const mergeConfig = createDefu((obj, key, value) => {
+  if (Array.isArray(value)) {
+    obj[key] = value;
+    return true;
+  }
+});
 
 const loadDefaultConfig = async () => {
   try {
@@ -19,7 +27,11 @@ const loadDefaultConfig = async () => {
 const loadUserConfig = async () => {
   try {
     const explorer = cosmiconfig('kittenwa');
-    const result = await explorer.search();
+    const searchFrom = process.argv[1] ? path.dirname(path.resolve(process.argv[1])) : process.cwd();
+    let result = await explorer.search(searchFrom);
+    if (!result && searchFrom !== process.cwd()) {
+      result = await explorer.search(process.cwd());
+    }
     return result?.config ?? {};
   } catch (err) {
     throw new Error(`[USER_CONFIG] Error loading user config: ${err.message}`, { cause: err });
@@ -32,7 +44,7 @@ export const loadConfig = async () => {
     loadDefaultConfig()
   ]);
   
-  return defu(userConfig, defaultConfig);
+  return mergeConfig(userConfig, defaultConfig);
 };
 
 let cachedConfig = null;

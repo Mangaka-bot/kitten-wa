@@ -50,32 +50,34 @@ export function clearTimers() {
 }
 
 function scheduleHMR(filePath, type) {
-  clearTimeout(debounceTimers.get(filePath));
+  const resolved = path.resolve(filePath);
+  clearTimeout(debounceTimers.get(resolved));
 
   debounceTimers.set(
-    filePath,
+    resolved,
     setTimeout(() => {
-      debounceTimers.delete(filePath);
-      executeHMR(filePath, type);
+      debounceTimers.delete(resolved);
+      executeHMR(resolved, type);
     }, debounceMs)
   );
 }
 
 async function executeHMR(filePath, type) {
-  const rel = path.relative(PLUGIN_DIR, filePath);
+  const resolved = path.resolve(filePath);
+  const rel = path.relative(PLUGIN_DIR, resolved);
 
   try {
-    await getLock(filePath).runExclusive(async () => {
+    await getLock(resolved).runExclusive(async () => {
       if (type === 'unlink') {
-        const count = unloadByFilePath(filePath);
+        const count = unloadByFilePath(resolved);
         logger.info(`[HMR] Unloaded: ${rel} (${count})`);
       } else {
         // Load new plugins without registering
-        const parent = getParentFolder(path.dirname(filePath));
-        const loaded = await loadFile(filePath, parent, false);
+        const parent = getParentFolder(path.dirname(resolved));
+        const loaded = await loadFile(resolved, parent, false);
 
         // Remove old plugins for this file
-        unloadByFilePath(filePath);
+        unloadByFilePath(resolved);
 
         // Register newly loaded plugins
         for (const [id, plugin] of loaded) {
@@ -93,7 +95,7 @@ async function executeHMR(filePath, type) {
     handleError(`[HMR:${rel}] Failed:`, err);
   } finally {
     if (type === 'unlink') {
-      deleteLockIfUnused(filePath);
+      deleteLockIfUnused(resolved);
     }
   }
 }

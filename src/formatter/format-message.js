@@ -1,22 +1,23 @@
 import {
-  isJidGroup, 
+  isJidGroup,
   areJidsSameUser,
   getDevice,
   downloadMediaMessage,
   getContentType,
   isLidUser,
-  jidNormalizedUser
- } from 'baileys';
+  jidNormalizedUser,
+} from 'baileys';
 
 import {
   getTimeString,
   isString,
   toNumber,
   toBase64,
-  getPN
+  getPN,
 } from '#utils.js';
 
 const extractMessage = (message) => {
+  if (!message) return [undefined, undefined];
   let type = getContentType(message);
   let data = message?.[type];
 
@@ -32,25 +33,28 @@ const extractMessage = (message) => {
 };
 
 const extractContent = (message = {}) => ({
-    body: message.text ?? message.caption ??
-      (isString(message) ? message : undefined),
-    mentions: message.contextInfo?.mentionedJid,
-    groupMentions: message.contextInfo?.groupMentions,
-    mimetype: message.mimetype,
-    fileName: message.fileName,
-    pageCount: message.pageCount,
-    fileLength: toNumber(message.fileLength),
-    hash: toBase64(message.fileSha256),
-    isViewOnce: message.viewOnce,
-    url: message.matchedText,
-    description: message.description,
-    thumbnail: message.jpegThumbnail,
+  body:
+    message.text ??
+    message.caption ??
+    (isString(message) ? message : undefined),
+  mentions: message.contextInfo?.mentionedJid,
+  groupMentions: message.contextInfo?.groupMentions,
+  mimetype: message.mimetype,
+  fileName: message.fileName,
+  pageCount: message.pageCount,
+  fileLength: toNumber(message.fileLength),
+  hash: toBase64(message.fileSha256),
+  isViewOnce: message.viewOnce,
+  url: message.matchedText,
+  description: message.description,
+  thumbnail: message.jpegThumbnail,
 });
 
 const load = async (x) => downloadMediaMessage(x, 'buffer', {});
 
 export const formatMessage = (sock, raw) => {
-  const myId = jidNormalizedUser(sock.user.lid);
+  const userJid = sock.user?.lid || sock.user?.id || '';
+  const myId = userJid ? jidNormalizedUser(userJid) : '';
   const [type, messageData] = extractMessage(raw.message);
 
   const {
@@ -60,10 +64,11 @@ export const formatMessage = (sock, raw) => {
     broadcast,
     key,
     key: {
-      remoteJid: roomId, 
-      id, fromMe,
+      remoteJid: roomId,
+      id,
+      fromMe,
       participant: p2,
-    }
+    } = {},
   } = raw;
 
   const jid = fromMe ? myId : p2 || p1 || roomId;
@@ -75,16 +80,21 @@ export const formatMessage = (sock, raw) => {
     isForwarded,
     forwardingScore,
   } = messageData?.contextInfo || {};
-  const [quotedType, quotedData] = extractMessage(quotedMessage);
+  const [quotedType, quotedData] = quotedMessage ? extractMessage(quotedMessage) : [undefined, undefined];
 
-  const quotedKey = {
-    id: quotedId,
-    participant: quotedSender,
-    remoteJid: roomId,
-    fromMe: areJidsSameUser(quotedSender, myId)
-  };
+  const quotedKey = quotedData
+    ? {
+        id: quotedId,
+        participant: quotedSender,
+        remoteJid: roomId,
+        fromMe: areJidsSameUser(quotedSender, myId),
+      }
+    : undefined;
 
-  return {
+  let cachedTimeString;
+  let cachedQuoted;
+
+  const msg = {
     type,
     name,
     id,
@@ -98,47 +108,82 @@ export const formatMessage = (sock, raw) => {
     isLid: isLidUser(jid),
     device: getDevice(id),
     isGroup: isJidGroup(roomId),
-    timeString: getTimeString(messageTimestamp),
     ...extractContent(messageData),
-    key, raw,
+    key,
+    raw,
     contextInfo: {
       stanzaId: id,
       participant: jid,
-      remoteJid: roomId
+      remoteJid: roomId,
     },
     load() {
-      return load(this.raw)
+      return load(this.raw);
     },
-    senderIs(id) {
-      return areJidsSameUser(this.jid, id)
+    senderIs(targetId) {
+      return areJidsSameUser(this.jid, targetId);
     },
     pn() {
-      return getPN(sock, this.jid)
+      return getPN(sock, this.jid);
     },
-    quoted: quotedData ? {
-      type: quotedType,
-      jid: quotedSender,
-      id: quotedId,
-      ...extractContent(quotedData),
-      key: quotedKey,
-      contextInfo: {
-        stanzaId: quotedId,
-        participant: quotedSender,
-        remoteJid: roomId
-      },
-      raw: {
-        key: quotedKey,
-        message: quotedMessage
-      },
-      load() {
-        return load(this.raw)
-      },
-      senderIs(id) {
-        return areJidsSameUser(this.jid, id)
-      },
-      pn() {
-        return getPN(sock, this.jid)
+  };
+
+  Object.defineProperty(msg, 'timeString', {
+    enumerable: true,
+    configurable: true,
+    get() {
+      if (cachedTimeString === undefined) {
+        cachedTimeString = getTimeString(messageTimestamp);
       }
-    }: undefined,
-  }
-}
+      return cachedTimeString;
+    },
+  });
+
+  Object.defineProperty(msg, 'quoted', {
+    enumerable: true,
+    configurable: true,
+    get() {
+      if (!quotedData) return undefined;
+      if (cachedQuoted === undefined) {
+        let cachedQuotedTimeString;
+        cachedQuoted = {
+          type: quotedType,
+          jid: quotedSender,
+          id: quotedId,
+          ...extractContent(quotedData),
+          key: quotedKey,
+          contextInfo: {
+            stanzaId: quotedId,
+            participant: quotedSender,
+            remoteJid: roomId,
+          },
+          raw: {
+            key: quotedKey,
+            message: quotedMessage,
+          },
+          load() {
+            return load(this.raw);
+          },
+          senderIs(targetId) {
+            return areJidsSameUser(this.jid, targetId);
+          },
+          pn() {
+            return getPN(sock, this.jid);
+          },
+        };
+        Object.defineProperty(cachedQuoted, 'timeString', {
+          enumerable: true,
+          configurable: true,
+          get() {
+            if (cachedQuotedTimeString === undefined) {
+              cachedQuotedTimeString = getTimeString(messageTimestamp);
+            }
+            return cachedQuotedTimeString;
+          },
+        });
+      }
+      return cachedQuoted;
+    },
+  });
+
+  return msg;
+};

@@ -1,86 +1,51 @@
-import { DisconnectReason } from 'baileys';
-import { Boom } from '@hapi/boom';
-import qrcode from 'qrcode-terminal';
-import chalk from 'chalk';
 import { pluginManager } from '#plugins.js';
-import { logger, pino } from '#internals.js';
+import { logger } from '#internals.js';
 import { initSession, listSessions } from '#auth.js';
-import { getConnectionConfig } from './getConnectionConfig.js';
+import {
+  ConnectionState,
+  DEFAULT_MAX_RETRIES,
+  defaultBackoff,
+  silentLogger,
+  silentPino,
+} from './constants.js';
+import { ConnectionError, parseDisconnectReason } from './errors.js';
+import { ClientRegistry } from './registry.js';
+import { createSocketProxy } from './socket-proxy.js';
+import { createPersistentEventBus } from './event-bus.js';
+import { handleClientAuth } from './auth-handler.js';
+import { syncOtherSessions } from './sync-manager.js';
 
-export const ConnectionState = Object.freeze({
-  DISCONNECTED: 'disconnected',
-  CONNECTING: 'connecting',
-  CONNECTED: 'connected',
-  RECONNECTING: 'reconnecting',
-});
-
-class ConnectionError extends Error {
-  constructor(message, { statusCode, recoverable = true } = {}) {
-    super(message);
-    this.name = 'ConnectionError';
-    this.statusCode = statusCode;
-    this.recoverable = recoverable;
-  }
-}
-
-const DISCONNECT_HANDLERS = new Map([
-  [DisconnectReason.connectionClosed, { message: 'Connection closed', recoverable: true }],
-  [DisconnectReason.restartRequired, { message: 'QR Scanned', recoverable: true }],
-  [DisconnectReason.timedOut, { message: 'Connection timed out', recoverable: true }],
-  [DisconnectReason.connectionLost, { message: 'Connection lost', recoverable: true }],
-  [DisconnectReason.unavailableService, { message: 'Service unavailable', recoverable: true }],
-  [DisconnectReason.loggedOut, { message: 'Session logged out', recoverable: true, deleteSession: true }],
-  [DisconnectReason.forbidden, { message: 'Account banned', recoverable: false, deleteSession: true }],
-  [405, { message: 'Not logged in', recoverable: true, deleteSession: true }],
-]);
-
-const silentLogger = Object.freeze({
-  trace: () => {},
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-  fatal: () => {},
-  prompt: () => {},
-  child: () => silentLogger,
-});
-
-const silentPino = pino({ level: 'silent' });
+export { ConnectionState, ConnectionError };
 
 export class Client {
-  static #registry = new Map();
-
-  static #isSyncing = false;
-  static #isConfiguring = false;
-
   // Static Registry API
 
   static get(id) {
-    return Client.#registry.get(id);
+    return ClientRegistry.get(id);
   }
 
   static has(id) {
-    return Client.#registry.has(id);
+    return ClientRegistry.has(id);
   }
 
   static get size() {
-    return Client.#registry.size;
+    return ClientRegistry.size;
   }
 
   static keys() {
-    return Client.#registry.keys();
+    return ClientRegistry.keys();
   }
 
   static values() {
-    return Client.#registry.values();
+    return ClientRegistry.values();
   }
-  
+
   static entries() {
-    return Client.#registry.entries();
+    return ClientRegistry.entries();
   }
 
   static [Symbol.iterator]() {
-    return Client.#registry.values();
+    return ClientRegistry.values();
   }
 
   // Instance Properties
@@ -89,15 +54,23 @@ export class Client {
   session = null;
   id = null;
 
+  #rawSock = null;
+  #ev = null;
+  #sockProxy = null;
+
   #flag = '';
   #plugins = null;
   #qr = null;
   #state = ConnectionState.DISCONNECTED;
   #cancelWait = null;
   #hasConnectedOnce = false;
+  #hasEverConnected = false;
+  #isFirstConnection = false;
+  #isNewSession = null;
 
   #socketConfig = null;
   #authConfig = null;
+  #pairingCodeRequested = false;
 
   #reconnectAttempts = 0;
   #reconnectTimer = null;
@@ -123,8 +96,8 @@ export class Client {
   constructor(options = {}) {
     const {
       id,
-      maxRetries = 30,
-      backoff = (attempt) => Math.min(1000 * 2 ** (attempt - 1), 60_000),
+      maxRetries = DEFAULT_MAX_RETRIES,
+      backoff = defaultBackoff,
       silent = false,
       sync = false,
       onPairing = null,
@@ -147,6 +120,13 @@ export class Client {
     this.#onReconnect = onReconnect;
     this.#onDisconnect = onDisconnect;
     this.#onStateChange = onStateChange;
+
+    this.#ev = createPersistentEventBus();
+    this.#sockProxy = createSocketProxy(
+      () => this.#rawSock,
+      () => this.#ev
+    );
+    this.sock = this.#sockProxy;
   }
 
   get state() {
@@ -157,21 +137,33 @@ export class Client {
     return this.#state === ConnectionState.CONNECTED;
   }
 
+  get isFirstConnection() {
+    return this.#isFirstConnection;
+  }
+
   get reconnectAttempts() {
     return this.#reconnectAttempts;
+  }
+
+  get ev() {
+    return this.#ev;
+  }
+
+  get rawSocket() {
+    return this.#rawSock;
   }
 
   // Registry Management
 
   #register() {
     if (this.id != null) {
-      Client.#registry.set(this.id, this);
+      ClientRegistry.set(this.id, this);
     }
   }
 
   #unregister() {
     if (this.id != null) {
-      Client.#registry.delete(this.id);
+      ClientRegistry.delete(this.id);
     }
   }
 
@@ -263,21 +255,41 @@ export class Client {
   async #createSocket() {
     this.#cleanupSocket();
 
+    let targetId = this.id;
+    if (targetId == null) {
+      const existingSessions = listSessions();
+      const available = existingSessions.find((id) => !ClientRegistry.has(id));
+      if (available != null) {
+        targetId = available;
+      }
+    }
+
     const socketConfig = this.#silent
       ? { ...this.#socketConfig, logger: silentPino }
       : this.#socketConfig;
 
     const { sock, session } = await initSession({
       socketConfig,
-      id: this.id,
+      id: targetId,
     });
 
-    this.sock = sock;
+    this.#rawSock = sock;
     this.session = session;
     this.id = session.id;
     this.#flag = `CLIENT-${session.id}`;
 
-    this.sock.ev.on('connection.update', (update) => {
+    if (this.#isNewSession === null) {
+      this.#isNewSession = Boolean(session.isNew);
+    }
+
+    // Pipe all events from the active raw socket into the persistent event bus
+    this.#rawSock.ev.process(async (events) => {
+      for (const [event, data] of Object.entries(events)) {
+        this.#ev.emit(event, data);
+      }
+    });
+
+    this.#rawSock.ev.on('connection.update', (update) => {
       this.#handleConnectionUpdate(update);
     });
   }
@@ -287,8 +299,32 @@ export class Client {
 
     try {
       if (qr) {
-        await this.#handleAuth(qr);
-      } else if (connection === 'open') {
+        this.#qr = qr;
+        await handleClientAuth({
+          qr: this.#qr,
+          rawSock: this.#rawSock,
+          flag: this.#flag,
+          isSync: this.#sync,
+          isSilent: this.#silent,
+          onPairing: this.#onPairing,
+          logger: this.#logger,
+          authConfig: this.#authConfig,
+          setAuthConfig: (cfg) => {
+            this.#authConfig = cfg;
+          },
+          pairingCodeRequested: this.#pairingCodeRequested,
+          setPairingCodeRequested: (req) => {
+            this.#pairingCodeRequested = req;
+          },
+          onSyncAuthAbort: (err) => {
+            this.#cleanupSocket();
+            this.#setState(ConnectionState.DISCONNECTED);
+            this.#resolvePending(null, err);
+          },
+        });
+      }
+
+      if (connection === 'open') {
         await this.#onConnectionOpen();
       } else if (connection === 'close') {
         await this.#onConnectionClose(lastDisconnect);
@@ -304,6 +340,7 @@ export class Client {
     this.#setState(ConnectionState.CONNECTED);
 
     this.#register();
+    this.#pairingCodeRequested = false;
 
     if (!this.#plugins || this.#plugins.destroyed) {
       try {
@@ -316,109 +353,79 @@ export class Client {
     const attempts = this.#reconnectAttempts;
     this.#reconnectAttempts = 0;
 
+    const isFirstConnection = Boolean(this.#isNewSession && !this.#hasEverConnected);
+    this.#isFirstConnection = isFirstConnection;
+
     if (wasReconnecting) {
+      this.#isFirstConnection = false;
       this.#emit('reconnect', { attempts });
       this.#logger.debug(`[${this.#flag}] Reconnected after ${attempts} attempt(s)`);
     } else {
       this.#hasConnectedOnce = true;
-      this.#emit('connect');
+      this.#emit('connect', { isFirstConnection });
+      this.#hasEverConnected = true;
+      this.#isNewSession = false;
       this.#logger.debug(`[${this.#flag}] Connected successfully`);
       this.#resolvePending({ sock: this.sock, session: this.session, id: this.id });
 
       if (!this.#sync) {
-        this.#syncOtherSessions();
+        syncOtherSessions({
+          currentId: this.id,
+          flag: this.#flag,
+          logger: this.#logger,
+          ClientClass: Client,
+        });
       }
     }
-  }
-
-  // Automatic Session Synchronization
-
-  async #syncOtherSessions() {
-    if (Client.#isSyncing) return;
-    Client.#isSyncing = true;
-
-    try {
-      const allSessionIds = listSessions();
-      const otherSessionIds = allSessionIds.filter((id) => id !== this.id);
-
-      if (otherSessionIds.length === 0) {
-        this.#logger.debug(`[${this.#flag}] No other sessions to sync`);
-        return;
-      }
-
-      this.#logger.debug(
-        `[${this.#flag}] Syncing ${otherSessionIds.length} other session(s) in background`
-      );
-
-      const results = await Promise.allSettled(
-        otherSessionIds.map((sessionId) => this.#restoreSession(sessionId))
-      );
-
-      let successCount = 0;
-      let skipCount = 0;
-      let failCount = 0;
-
-      for (const result of results) {
-        if (result.status === 'fulfilled') {
-          if (result.value === true) successCount++;
-          else skipCount++;
-        } else {
-          failCount++;
-        }
-      }
-
-      this.#logger.debug(
-        `[${this.#flag}] Session sync complete: ${successCount} restored, ${skipCount} skipped, ${failCount} failed`
-      );
-    } catch (err) {
-      this.#logger.error(err, `[${this.#flag}] Error during session sync`);
-    } finally {
-      Client.#isSyncing = false;
-    }
-  }
-
-  async #restoreSession(sessionId) {
-    if (Client.has(sessionId)) {
-      return false;
-    }
-
-    const client = new Client({
-      id: sessionId,
-      silent: true,
-      sync: true,
-      maxRetries: 3,
-    });
-
-    await client.connect();
-    return true;
   }
 
   async #onConnectionClose(lastDisconnect) {
-    const disconnectInfo = this.#parseDisconnectReason(lastDisconnect);
-    const { message, statusCode, recoverable, deleteSession } = disconnectInfo;
-
-    if (message === 'QR Scanned' && !this.#onPairing && !this.#silent) {
-      console.clear();
-    }
+    const disconnectInfo = parseDisconnectReason(lastDisconnect);
+    const { message, statusCode, recoverable, deleteSession, isRestart } = disconnectInfo;
 
     const level = recoverable ? 'debug' : 'warn';
     this.#logger[level](`[${this.#flag}] Disconnected: ${message} (code: ${statusCode})`);
 
-    if (this.#hasConnectedOnce) {
+    if (this.#hasConnectedOnce && !isRestart) {
       this.#emit('disconnect', { message, statusCode, recoverable });
     }
-    
+
     this.#unregister();
 
     if (deleteSession) {
       await this.session?.delete().catch((err) => {
         this.#logger.error(err, `[${this.#flag}] Failed to delete session`);
       });
+      this.#authConfig = null;
+      this.#pairingCodeRequested = false;
+      this.#isNewSession = true;
+      this.#hasEverConnected = false;
+      this.#isFirstConnection = false;
+      this.#hasConnectedOnce = false;
+    }
+
+    // If session was deleted, invalid, or logged out, and client is not a background sync connection
+    if (deleteSession && !this.#sync) {
+      this.#logger.warn(`[${this.#flag}] Session invalid or deleted, initiating new connection dialogue`);
+      this.id = null; // Reset so that a fresh clean session can be allocated
+      await this.#scheduleReconnect('Session reset for re-authentication');
+      return;
     }
 
     if (!recoverable || this.#isShuttingDown) {
       this.#setState(ConnectionState.DISCONNECTED);
       this.#resolvePending(null, new ConnectionError(message, { statusCode, recoverable }));
+      return;
+    }
+
+    if (isRestart) {
+      this.#logger.debug(`[${this.#flag}] restarting session`);
+      try {
+        await this.#createSocket();
+      } catch (err) {
+        this.#logger.error(err, `[${this.#flag}] Socket creation failed during restart`);
+        await this.#scheduleReconnect(err.message);
+      }
       return;
     }
 
@@ -462,6 +469,7 @@ export class Client {
       await this.#createSocket();
     } catch (err) {
       this.#logger.error(err, `[${this.#flag}] Socket creation failed during reconnect`);
+      await this.#scheduleReconnect(err.message);
     }
   }
 
@@ -476,72 +484,6 @@ export class Client {
     });
   }
 
-  #parseDisconnectReason(lastDisconnect) {
-    const boom = new Boom(lastDisconnect?.error);
-    const statusCode = boom?.output?.statusCode;
-    const handler = DISCONNECT_HANDLERS.get(statusCode);
-
-    if (!handler) {
-      return {
-        message: `Unknown disconnect reason (code: ${statusCode ?? 'unknown'})`,
-        statusCode,
-        recoverable: true,
-        deleteSession: false,
-      };
-    }
-
-    return { ...handler, statusCode };
-  }
-
-  // Authentication
-
-  async #handleAuth(qr) {
-    this.#qr = qr;
-
-    if (this.#sync) {
-      const err = new ConnectionError('Authentication required for sync connection', {
-        recoverable: false,
-      });
-      this.#logger.debug(`[${this.#flag}] Sync connection requires auth, aborting`);
-      this.#cleanupSocket();
-      this.#setState(ConnectionState.DISCONNECTED);
-      this.#resolvePending(null, err);
-      return;
-    }
-
-    if (Client.#isConfiguring) return;
-
-    if (typeof this.#onPairing === 'function') {
-      const requestPairingCode = this.sock?.requestPairingCode?.bind(this.sock);
-      await this.#onPairing({ qr: this.#qr, requestPairingCode });
-      return;
-    }
-
-    if (this.#silent) {
-      return;
-    }
-
-    Client.#isConfiguring = true;
-    try {
-      this.#authConfig ??= await getConnectionConfig();
-    } finally {
-      Client.#isConfiguring = false;
-    }
-
-    if (this.#authConfig.type === 'pn') {
-      const code = await this.sock.requestPairingCode(this.#authConfig.pn);
-      this.#logger.prompt(this.#formatPairingCode(code));
-    } else {
-      qrcode.generate(this.#qr, { small: true });
-      process.stdout.write('\n');
-    }
-  }
-
-  #formatPairingCode(code) {
-    const formatted = code.match(/.{1,4}/g)?.join(' ') ?? code;
-    return `\n${chalk.green('> Your OTP Code: ')}${chalk.bold(formatted)}`;
-  }
-
   // Cleanup & Shutdown
 
   #cleanupSocket() {
@@ -550,15 +492,18 @@ export class Client {
       this.#plugins = null;
     }
 
-    if (!this.sock) return;
+    this.#pairingCodeRequested = false;
+
+    if (!this.#rawSock) return;
 
     try {
-      this.sock.ev.removeAllListeners();
+      this.#rawSock.ev.removeAllListeners();
+      this.#rawSock.ws?.close?.();
     } catch {
       /* noop */
     }
 
-    this.sock = null;
+    this.#rawSock = null;
   }
 
   #clearReconnectTimer() {
@@ -584,13 +529,17 @@ export class Client {
 
     this.#isShuttingDown = false;
     this.#hasConnectedOnce = false;
+    this.#pairingCodeRequested = false;
   }
 
   async logout() {
     try {
-      await this.sock?.logout();
+      await this.#rawSock?.logout?.();
       await this.disconnect();
       await this.session?.delete();
+      this.#isNewSession = null;
+      this.#hasEverConnected = false;
+      this.#isFirstConnection = false;
     } catch (err) {
       this.#logger.error(err, `[${this.#flag}] Logging out failed`);
     }

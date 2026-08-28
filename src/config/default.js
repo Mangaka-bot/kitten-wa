@@ -5,19 +5,19 @@ const socket = {
   browser: Browsers.ubuntu('Chrome'),
   markOnlineOnConnect: false,
   syncFullHistory: false,
-  generateHighQualityLinkPreview: true,
+  generateHighQualityLinkPreview: false,
   shouldIgnoreJid: () => false,
   shouldSyncHistoryMessage: () => false,
   logger: pino({ level: "silent" }),
-}
+};
 
 const db = {
   path: './db',
   compression: true,
   mapSize: 2 * 1024 * 1024 * 1024, // 2 GB
   maxReaders: 126,
-  noSync: false,
-  noMetaSync: false,
+  noSync: true,
+  noMetaSync: true,
 };
 
 const plugins = {
@@ -27,13 +27,13 @@ const plugins = {
   hmr: {
     enable: false,
     debounce: 200,
-    debug: false
-  }
-}
+    debug: false,
+  },
+};
 
 export default {
   db,
   socket,
   plugins,
-  timeZone: 'Africa/Casablanca'
-}
+  timeZone: 'Africa/Casablanca',
+};

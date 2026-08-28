@@ -14,7 +14,7 @@ export const {
   }
 } = config.plugins;
 
-export const PLUGIN_DIR = path.join(process.cwd(), dir);
+export const PLUGIN_DIR = path.resolve(process.cwd(), dir);
 
 export const EVENTS = Object.freeze(new Set([
   'messaging-history.set', 'chats.upsert', 'chats.update', 'chats.delete',

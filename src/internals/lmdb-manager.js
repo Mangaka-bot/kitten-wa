@@ -33,6 +33,12 @@ class LMDBDatabaseManager {
     return Object.freeze({ ...this.#config });
   }
 
+  async sync() {
+    if (this.#db && !this.#isClosing) {
+      await this.#db.flushed;
+    }
+  }
+
   async close() {
     if (!this.#db || this.#isClosing) return;
 
@@ -52,3 +58,22 @@ class LMDBDatabaseManager {
 }
 
 export const LMDBManager = new LMDBDatabaseManager();
+
+// Graceful shutdown hooks to guarantee asynchronous writes are flushed
+const handleExit = async () => {
+  try {
+    await LMDBManager.close();
+  } catch {
+    /* noop */
+  }
+};
+
+process.once('beforeExit', handleExit);
+process.once('SIGINT', async () => {
+  await handleExit();
+  process.exit(0);
+});
+process.once('SIGTERM', async () => {
+  await handleExit();
+  process.exit(0);
+});
