@@ -141,14 +141,19 @@ export default {
     browser: Browsers.ubuntu('Chrome'),
     markOnlineOnConnect: false,
     syncFullHistory: false,
-    generateHighQualityLinkPreview: true,
+    generateHighQualityLinkPreview: false,
+    shouldIgnoreJid: () => false,
+    shouldSyncHistoryMessage: () => false,
     logger: pino({ level: 'silent' })
   },
 
   db: {
     path: './db',
     compression: true,
-    mapSize: 2 * 1024 * 1024 * 1024  // 2GB
+    mapSize: 2 * 1024 * 1024 * 1024, // 2 GB
+    maxReaders: 126,
+    noSync: true,
+    noMetaSync: true
   },
 
   plugins: {
