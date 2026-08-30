@@ -1,7 +1,5 @@
 <div align="left">
 
-<img src="https://files.catbox.moe/j7dpni.png" alt="Kitten Logo" align="right" style="width: 40%; max-width: 220px; height: auto; margin-left: 15px;">
-
 <a name="-kitten"></a>
 # **Kitten Framework**
 
