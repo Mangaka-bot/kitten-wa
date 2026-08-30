@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 const pluginsDir = path.resolve(__dirname, 'plugins');
 
 const db = {
-  path: path.resolve(__dirname, '../db'),
+  path: path.resolve(__dirname, 'db'),
   compression: true,
   mapSize: 2 * 1024 * 1024 * 1024, // 2 GB
   maxReaders: 126,
