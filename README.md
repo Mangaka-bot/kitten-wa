@@ -1,6 +1,6 @@
 <div align="left">
 
-<img src="https://files.catbox.moe/j7dpni.png" alt="Kitten Logo" align="right" width="180">
+<img src="https://files.catbox.moe/j7dpni.png" alt="Kitten Logo" align="right" width="160">
 
 <a name="-kitten"></a>
 # **Kitten Framework**
