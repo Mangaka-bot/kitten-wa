@@ -4,6 +4,7 @@ import { initSession, listSessions } from '#auth.js';
 import {
   ConnectionState,
   DEFAULT_MAX_RETRIES,
+  DEFAULT_MAX_PAIRING_ATTEMPTS,
   defaultBackoff,
   silentLogger,
   silentPino,
@@ -73,12 +74,14 @@ export class Client {
   #pairingCodeRequested = false;
 
   #reconnectAttempts = 0;
+  #pairingAttempts = 0;
   #reconnectTimer = null;
   #isShuttingDown = false;
 
   #pendingConnect = null;
 
   #maxRetries;
+  #maxPairingAttempts;
   #backoff;
 
   // Options
@@ -88,6 +91,7 @@ export class Client {
 
   // Callbacks
   #onPairing;
+  #onPairingAttemptsExceeded;
   #onConnect;
   #onReconnect;
   #onDisconnect;
@@ -97,10 +101,12 @@ export class Client {
     const {
       id,
       maxRetries = DEFAULT_MAX_RETRIES,
+      maxPairingAttempts = DEFAULT_MAX_PAIRING_ATTEMPTS,
       backoff = defaultBackoff,
       silent = false,
       sync = false,
       onPairing = null,
+      onPairingAttemptsExceeded = null,
       onConnect = null,
       onReconnect = null,
       onDisconnect = null,
@@ -111,11 +117,13 @@ export class Client {
     this.id = id;
     this.#socketConfig = socketConfig;
     this.#maxRetries = maxRetries;
+    this.#maxPairingAttempts = maxPairingAttempts;
     this.#backoff = backoff;
     this.#silent = silent;
     this.#sync = sync;
     this.#logger = silent ? silentLogger : logger;
     this.#onPairing = onPairing;
+    this.#onPairingAttemptsExceeded = onPairingAttemptsExceeded;
     this.#onConnect = onConnect;
     this.#onReconnect = onReconnect;
     this.#onDisconnect = onDisconnect;
@@ -143,6 +151,14 @@ export class Client {
 
   get reconnectAttempts() {
     return this.#reconnectAttempts;
+  }
+
+  get pairingAttempts() {
+    return this.#pairingAttempts;
+  }
+
+  get maxPairingAttempts() {
+    return this.#maxPairingAttempts;
   }
 
   get ev() {
@@ -188,11 +204,15 @@ export class Client {
     const callback = callbacks[event];
     if (typeof callback !== 'function') return;
 
-    queueMicrotask(() => {
+    queueMicrotask(async () => {
       try {
-        callback({ ...data, client: this });
+        await callback({ ...data, client: this });
       } catch (err) {
-        this.#logger.error(err, `[${this.#flag}] Error in ${event} callback`);
+        try {
+          this.#logger.error(err, `[${this.#flag}] Error in ${event} callback`);
+        } catch {
+          // Prevent logger errors from becoming unhandled rejections
+        }
       }
     });
   }
@@ -218,6 +238,7 @@ export class Client {
   async #initConnection() {
     this.#setState(ConnectionState.CONNECTING);
     this.#reconnectAttempts = 0;
+    this.#pairingAttempts = 0;
     this.#pendingConnect = this.#createDeferred();
 
     try {
@@ -296,9 +317,36 @@ export class Client {
 
   async #handleConnectionUpdate({ connection, lastDisconnect, qr }) {
     if (this.#isShuttingDown) return;
-
+    
     try {
       if (qr) {
+        this.#pairingAttempts++;
+
+        if (this.#pairingAttempts > this.#maxPairingAttempts) {
+          this.#logger.warn(`[${this.#flag}] Max pairing attempts (${this.#maxPairingAttempts}) exceeded`);
+
+          if (typeof this.#onPairingAttemptsExceeded === 'function') {
+            try {
+              await this.#onPairingAttemptsExceeded({
+                client: this,
+                maxAttempts: this.#maxPairingAttempts,
+              });
+            } catch (cbErr) {
+              this.#logger.error(
+                cbErr,
+                `[${this.#flag}] Error in onPairingAttemptsExceeded callback`
+              );
+            }
+          }
+
+          this.#cleanupSocket();
+          this.#clearReconnectTimer();
+          this.#unregister();
+          this.#pairingAttempts = 0;
+          this.#setState(ConnectionState.DISCONNECTED);
+          return;
+        }
+
         this.#qr = qr;
         await handleClientAuth({
           qr: this.#qr,
@@ -307,6 +355,8 @@ export class Client {
           isSync: this.#sync,
           isSilent: this.#silent,
           onPairing: this.#onPairing,
+          attempts: this.#pairingAttempts,
+          maxAttempts: this.#maxPairingAttempts,
           logger: this.#logger,
           authConfig: this.#authConfig,
           setAuthConfig: (cfg) => {
@@ -341,6 +391,7 @@ export class Client {
 
     this.#register();
     this.#pairingCodeRequested = false;
+    this.#pairingAttempts = 0;
 
     if (!this.#plugins || this.#plugins.destroyed) {
       try {
@@ -398,6 +449,7 @@ export class Client {
       });
       this.#authConfig = null;
       this.#pairingCodeRequested = false;
+      this.#pairingAttempts = 0;
       this.#isNewSession = true;
       this.#hasEverConnected = false;
       this.#isFirstConnection = false;
@@ -437,14 +489,9 @@ export class Client {
   async #scheduleReconnect(reason) {
     this.#reconnectAttempts++;
 
-    if (this.#reconnectAttempts > this.#maxRetries) {
-      const err = new ConnectionError(
-        `Max reconnection attempts (${this.#maxRetries}) exceeded`,
-        { recoverable: false }
-      );
+    if (this.#reconnectAttempts > this.#maxRetries) {      
       this.#setState(ConnectionState.DISCONNECTED);
-      this.#resolvePending(null, err);
-      this.#logger.error(err, `[${this.#flag}] ${err.message}`);
+      this.#logger.warn(`[${this.#flag}] Max reconnection attempts (${this.#maxRetries}) exceeded`);
       return;
     }
 
@@ -530,6 +577,7 @@ export class Client {
     this.#isShuttingDown = false;
     this.#hasConnectedOnce = false;
     this.#pairingCodeRequested = false;
+    this.#pairingAttempts = 0;
   }
 
   async logout() {
@@ -540,6 +588,7 @@ export class Client {
       this.#isNewSession = null;
       this.#hasEverConnected = false;
       this.#isFirstConnection = false;
+      this.#pairingAttempts = 0;
     } catch (err) {
       this.#logger.error(err, `[${this.#flag}] Logging out failed`);
     }

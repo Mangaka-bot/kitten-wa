@@ -36,6 +36,7 @@ export const silentLogger = Object.freeze({
 export const silentPino = pino({ level: 'silent' });
 
 export const DEFAULT_MAX_RETRIES = 30;
+export const DEFAULT_MAX_PAIRING_ATTEMPTS = 20;
 
 export const defaultBackoff = (attempt) => Math.min(1000 * 2 ** (attempt - 1), 60_000);
 

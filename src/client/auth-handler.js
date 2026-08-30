@@ -1,37 +1,14 @@
-import qrcode from 'qrcode-terminal';
 import chalk from 'chalk';
 import { ConnectionError } from './errors.js';
 import { ClientRegistry } from './registry.js';
 import { getConnectionConfig } from './getConnectionConfig.js';
+import { QR } from './qr.js';
 
-/**
- * Formats a pairing code into readable 4-character groups with styling.
- *
- * @param {string} code - The raw pairing code string
- * @returns {string} The styled formatted pairing code
- */
 export function formatPairingCode(code) {
   const formatted = code.match(/.{1,4}/g)?.join(' ') ?? code;
   return `\n${chalk.green('> Your OTP Code: ')}${chalk.bold(formatted)}`;
 }
 
-/**
- * Handles authentication for a client instance when a QR code or pairing challenge is received.
- *
- * @param {object} params
- * @param {string} params.qr - The QR code string
- * @param {any} params.rawSock - The raw WASocket instance
- * @param {string} params.flag - Identifier string for logging
- * @param {boolean} params.isSync - Whether the client is a background sync instance
- * @param {boolean} params.isSilent - Whether logging/prompts are suppressed
- * @param {Function|null} params.onPairing - Optional custom pairing callback
- * @param {object} params.logger - Logger instance
- * @param {object|null} params.authConfig - Cached auth config
- * @param {(config: object|null) => void} params.setAuthConfig - Setter for auth config
- * @param {boolean} params.pairingCodeRequested - Whether pairing code has already been requested
- * @param {(requested: boolean) => void} params.setPairingCodeRequested - Setter for pairingCodeRequested
- * @param {(err: Error) => void} params.onSyncAuthAbort - Callback when sync connection requires auth
- */
 export async function handleClientAuth({
   qr,
   rawSock,
@@ -39,6 +16,8 @@ export async function handleClientAuth({
   isSync,
   isSilent,
   onPairing,
+  attempts,
+  maxAttempts,
   logger,
   authConfig,
   setAuthConfig,
@@ -55,11 +34,13 @@ export async function handleClientAuth({
     return;
   }
 
+  const qrObj = qr instanceof QR ? qr : new QR(qr);
+
   if (ClientRegistry.isConfiguring) return;
 
   if (typeof onPairing === 'function') {
     const requestPairingCode = rawSock?.requestPairingCode?.bind(rawSock);
-    await onPairing({ qr, requestPairingCode });
+    await onPairing({ qr: qrObj, requestPairingCode, attempts, maxAttempts });
     return;
   }
 
@@ -90,8 +71,7 @@ export async function handleClientAuth({
       }
     }
   } else {
-    qrcode.generate(qr, { small: true });
+    await qrObj.print();
     process.stdout.write('\n');
   }
 }
-

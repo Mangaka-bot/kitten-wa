@@ -1,6 +1,6 @@
 <div align="left">
 
-<img src="https://files.catbox.moe/j7dpni.png" align="right" width="220" alt="Kitten Logo">
+<img src="https://files.catbox.moe/j7dpni.png" alt="Kitten Logo" style="width: 30%; max-width: 220px; height: auto; float: right; margin-left: 15px;">
 
 <a name="-kitten"></a>
 # **Kitten Framework**
@@ -73,6 +73,7 @@ import { getClient } from '@shoru/kitten';
 const { sock, session, id } = await getClient({
   id: 0,                    // Session ID (auto-generated if omitted)
   maxRetries: 30,           // Reconnection attempts
+  maxPairingAttempts: 20,   // Max pairing attempts before timeout (default: 20)
   silent: false,            // Suppress output
   socketConfig: {},         // Baileys socket overrides
   
@@ -88,6 +89,9 @@ const { sock, session, id } = await getClient({
   },
   onStateChange: ({ oldState, newState }) => {
     console.log(`State: ${oldState} → ${newState}`);
+  },
+  onPairingAttemptsExceeded: ({ client, maxAttempts }) => {
+    console.log(`Pairing attempts exceeded limit of ${maxAttempts}`);
   }
 });
 ```
@@ -95,17 +99,27 @@ const { sock, session, id } = await getClient({
 ### Custom Authentication
 
 ```javascript
-import qrcode from 'qrcode-terminal';
-
 const { sock, id } = await getClient({
-  onPairing: async ({ qr, requestPairingCode }) => {
+  maxPairingAttempts: 5,
+  onPairing: async ({ qr, requestPairingCode, attempts, maxAttempts }) => {
+    console.log(`Pairing attempt ${attempts}/${maxAttempts}`);
+
     // Option 1: Display QR code
     console.log('Scan QR:');
-    qrcode.generate(qr, { small: true });
+    await qr.print();
     
+    /* 
+    you can use:
+    const qrImg = await qr.buffer()
+    to send|save the QR code as a png image
+    */
+
     // Option 2: Use pairing code
     const code = await requestPairingCode('1234567890');
     console.log('Enter this code in WhatsApp:', code);
+  },
+  onPairingAttemptsExceeded: async ({ client, maxAttempts }) => {
+    console.log(`Pairing expired after ${maxAttempts} attempts!`);
   }
 });
 ```

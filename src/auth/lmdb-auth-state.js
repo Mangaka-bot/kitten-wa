@@ -31,10 +31,6 @@ const genID = async (db) => {
 
 const getSessionId = async (db, input) => {
   if (input == null) {
-    const existing = listSessions();
-    if (existing.length > 0) {
-      return existing[0];
-    }
     return genID(db);
   }
   if (Number.isInteger(input) && input >= 0) return input;
